@@ -135,6 +135,10 @@ link_wrapper() {
     -sMODULARIZE=1 -sEXPORT_NAME=createCvc5
     -sENVIRONMENT=web,worker,node
     -sALLOW_MEMORY_GROWTH=1
+    # emscripten's default wasm stack is 64 kB, and a stack overflow inside a
+    # synchronous call is a trap that kills the instance rather than an
+    # (error ...) the host can recover from.  8 MB is what cvc5 gets natively.
+    -sSTACK_SIZE=8388608
     -sEXPORTED_FUNCTIONS=_cvc5_solve,_cvc5_reset,_cvc5_version,_malloc,_free
     -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,UTF8ToString,stringToUTF8,lengthBytesUTF8,HEAPU8
     -sINCOMING_MODULE_JS_API=locateFile,wasmBinary,instantiateWasm,print,printErr,onAbort
@@ -167,7 +171,7 @@ write_metadata() {
   "patches": "$(cd "$repo_dir/patches" 2>/dev/null && echo *.patch)",
   "exceptions": "$exception_flag",
   "emcc": "$emcc_version",
-  "flags": "em++ ${emcc_args[*]} <objects> -o cvc5.js"
+  "flags": "em++ ${emcc_args[*]//$repo_dir\//} <objects> -o cvc5.js"
 }
 JSON
   cp "$cvc5_dir/COPYING" "$dist_dir/LICENSE"

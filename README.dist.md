@@ -51,7 +51,7 @@ M.heapSize(): number              // current wasm heap size in bytes
 
 `solve` is synchronous and may be called as often as you like; the module
 stays alive for the whole session.  On a 4-core Linux machine a trivial query
-costs about 2.4 ms in Chromium and 2.4 ms under node, and one pass of the 87
+costs about 2.6 ms in Chromium and 2.4 ms under node, and one pass of the 87
 real queries this was built for takes about 1 s -- against about 46 ms and
 4.6 s for cvc5's own `cvc5-Wasm.zip` driven through `callMain` in the same
 browser.
@@ -88,6 +88,12 @@ A genuine cvc5 crash (an internal error that would be a signal natively) is a
 wasm trap: it kills the instance for good, and `solve` then throws a
 `RuntimeError`.  That is deliberate -- the instance is dead and the host has to
 know.  Recover by calling `createCvc5()` again for a fresh instance.
+
+Very deeply nested input (thousands of nesting levels) can exhaust the
+engine's call stack instead.  That surfaces as `RangeError: Maximum call stack
+size exceeded`, and unlike a trap the module survives it and answers the next
+query normally.  The build reserves an 8 MB wasm stack, matching what cvc5 gets
+natively, so this happens before anything can overflow inside wasm.
 
 Timers cannot fire while a synchronous wasm call owns the only thread, so
 `(set-option :tlimit N)` and `--tlimit` never trigger.  Use

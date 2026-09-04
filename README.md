@@ -14,8 +14,8 @@ session; every `solve` call starts from a clean solver.  This replaces driving
 cvc5's own `cvc5-Wasm.zip` -- the command-line binary compiled with emscripten
 -- through `callMain` once per query, which pays cvc5's whole startup and
 teardown every time.  In the same headless Chromium, on the same machine, one
-pass of the 87 queries in `bench/swap/` takes **1.03 s** here against **4.58 s**
-that way, and a trivial query costs **2.4 ms** against **46 ms**.
+pass of the 87 queries in `bench/swap/` takes **1.04 s** here against **4.58 s**
+that way, and a trivial query costs **2.6 ms** against **46 ms**.
 
 [task.md](task.md) is the specification this implements.  Releases carry the
 built artefacts: fetch `cvc5-wasm-<tag>.zip` (or `.tar.gz`) from the
@@ -101,12 +101,12 @@ Measured with the same `npm test` harness under node:
 
 | design | trivial query | swap corpus | heap after 20 corpus passes |
 |---|---|---|---|
-| 1 -- fresh solver per call (**shipped**) | 2.44 ms | 0.92 s | 1.00x |
-| 2 -- session `TermManager`, `(reset)` per call | 2.52 ms | 1.08 s | **3.60x** |
+| 1 -- fresh solver per call (**shipped**) | 2.37 ms | 0.86 s | 1.00x |
+| 2 -- session `TermManager`, `(reset)` per call | 2.47 ms | 1.02 s | **3.00x** |
 
 Design 2 keeps nothing worth keeping warm: what it holds on to is a term
 manager whose caches the reset invalidates anyway, so it is slightly slower
-*and* it accumulates nodes across queries -- 17 MB grows to 63 MB over 1740
+*and* it accumulates nodes across queries -- 25 MB grows to 77 MB over 1740
 calls, which fails the leak test.  Design 1 ships.
 
 Note that plain SMT-LIB `(reset)` is not enough on its own for design 2:
@@ -132,6 +132,22 @@ Timers cannot fire while a synchronous wasm call owns the only thread, so
 `(set-option :rlimit N)`, cvc5's deterministic resource limit, instead.  The
 build has no Asyncify and no pthreads.
 
+### Very deeply nested input
+
+cvc5 walks nested terms recursively, so nesting depth costs stack.  The build
+therefore sets `-sSTACK_SIZE=8388608`, matching the 8 MB cvc5 gets natively,
+rather than emscripten's 64 kB default: with the default, a term nested about
+5000 deep overflows the wasm stack, which is a trap -- it corrupts memory and
+kills the instance.  With 8 MB, the engine's own call-stack limit is reached
+first, and that is a clean, recoverable `RangeError: Maximum call stack size
+exceeded`: the module survives it and answers the next query normally.  Under
+node the crossover is somewhere above 5000 nesting levels; the 87 real queries
+in `bench/swap/` are nested 32 deep.
+
+The reserved stack is why the heap starts at 25 MB rather than 17 MB.  It does
+not otherwise cost anything: the leak test shows the heap flat across 1740
+calls.
+
 ## Measurements
 
 All numbers below are from one machine: a 4-core x86-64 Linux container, node
@@ -147,16 +163,18 @@ Trivial query is `(set-logic ALL)\n(check-sat)\n`, the mean of 100 calls after
 | where | trivial query | swap corpus | target |
 |---|---|---|---|
 | native cvc5 1.3.4, one process per query | 5 ms | 0.74 s | -- |
-| **this build, node 22** | **2.44 ms** | **0.92 s** | trivial < 3 ms |
-| **this build, Chromium 151** | **2.43 ms** | **1.03 s** | trivial < 10 ms, corpus < 2 s |
-| this build, Firefox 153 | 8.06 ms | 2.88 s | -- |
+| **this build, node 22** | **2.37 ms** | **0.86 s** | trivial < 3 ms |
+| **this build, Chromium 151** | **2.57 ms** | **1.04 s** | trivial < 10 ms, corpus < 2 s |
+| this build, Firefox 153 | 8.79 ms | 3.18 s | -- |
 | `cvc5-Wasm.zip` 1.3.4 via `callMain`, Chromium 151 | 45.96 ms | 4.58 s | -- |
 
 Every target in task.md is met.  A query now costs less than a native process
 does, because the module is already up: the remaining per-call cost is building
 and tearing down one solver.  Firefox runs the same code about 3x slower than
-Chromium; it is still inside the browser target for a single query, and 2.88 s
-for a whole corpus pass is the one number a Firefox user would notice.
+Chromium; it is still inside the browser target for a single query, though not
+by much, and 3.2 s for a whole corpus pass is the one number a Firefox user
+would notice.  Repeated runs of the same build vary by roughly 15%, so read
+these to two significant figures at most.
 
 The `cvc5-Wasm.zip` row is cvc5's own artefact measured the way the consumer
 drives it today, in the same browser on the same machine
@@ -166,7 +184,7 @@ drives it today, in the same browser on the same machine
 
 | file | raw | gzip -9 |
 |---|---|---|
-| `cvc5.wasm` | 30,842,612 | 5,733,838 |
+| `cvc5.wasm` | 30,842,613 | 5,733,836 |
 | `cvc5.js` | 94,846 | 22,061 |
 | (`cvc5-Wasm.zip`'s `cvc5.wasm`, for comparison) | 18,882,345 | 3,953,989 |
 
@@ -188,11 +206,12 @@ measurably better on every axis:
 
 | build | `cvc5.wasm` | node trivial | node corpus | Chromium trivial | Chromium corpus | Firefox trivial | Firefox corpus |
 |---|---|---|---|---|---|---|---|
-| `-fexceptions` (shipped) | 30.8 MB | 2.44 ms | 0.92 s | 2.43 ms | 1.03 s | 8.06 ms | 2.88 s |
-| `-fwasm-exceptions` | 21.9 MB | 1.34 ms | 0.40 s | 1.50 ms | 0.49 s | 6.20 ms | 2.06 s |
+| `-fexceptions` (shipped) | 30.8 MB | 2.37 ms | 0.86 s | 2.57 ms | 1.04 s | 8.79 ms | 3.18 s |
+| `-fwasm-exceptions` | 21.9 MB | 1.36 ms | 0.38 s | 1.52 ms | 0.50 s | 5.72 ms | 2.04 s |
 
 Roughly twice as fast and 9 MB smaller, with all six node tests passing and
-both browser test pages green.  It is not shipped because task.md prescribes
+both browser test pages green.  Deeply nested input behaves the same either
+way (see below).  It is not shipped because task.md prescribes
 `-fexceptions`, and because it needs wasm exception handling in the runtime:
 Chrome 95+, Firefox 131+, Safari 15.2+, node 16+.  Every browser and node
 version this repository targets qualifies, so switching is a reasonable call
@@ -243,7 +262,7 @@ patch.
    one.
 5. **leak** -- 20 passes of the corpus (1740 calls): identical answers, and the
    heap stays within 2x of its size after the first pass (it does not move:
-   17,367,040 bytes both times).
+   25,690,112 bytes both times).
 6. **timing** -- per-call milliseconds for the trivial query and the total for
    one pass of the corpus.
 
@@ -288,6 +307,9 @@ Two things are worth knowing about that configure line:
   own build only adds `-fexceptions` for C.
 * no `--ninja` -- LibPoly's CMake declares two rules for `libpoly.a` when the
   target has no shared libraries, which Ninja rejects and Make tolerates.
+
+The link line is task.md's, plus `-sSTACK_SIZE=8388608` (see *Very deeply
+nested input*); `VERSION.json` records it verbatim.
 
 Knobs: `DESIGN=1|2`, `EXCEPTIONS=js|wasm`, `JOBS=n`, `BUILD_ROOT=...`,
 `DIST_DIR=...`.
