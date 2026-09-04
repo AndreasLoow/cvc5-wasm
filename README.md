@@ -10,17 +10,41 @@ M.solve("(set-logic ALL)\n(check-sat)\n");    // "sat\n", synchronous, many time
 ```
 
 The wasm instance, the C++ runtime and the heap stay alive for the whole
-session; every `solve` call starts from a clean solver.  This replaces driving
-cvc5's own `cvc5-Wasm.zip` -- the command-line binary compiled with emscripten
--- through `callMain` once per query, which pays cvc5's whole startup and
-teardown every time.  In the same headless Chromium, on the same machine, one
-pass of the 87 queries in `bench/swap/` takes **1.04 s** here against **4.58 s**
-that way, and a trivial query costs **2.6 ms** against **46 ms**.
+session; every `solve` call starts from a clean solver.
 
-[task.md](task.md) is the specification this implements.  Releases carry the
-built artefacts: fetch `cvc5-wasm-<tag>.zip` (or `.tar.gz`) from the
-[releases page](https://github.com/AndreasLoow/cvc5-wasm/releases) and serve
-`cvc5.js` and `cvc5.wasm` side by side.
+Releases carry the built artefacts: fetch `cvc5-wasm-<tag>.zip` (or `.tar.gz`)
+from the [releases page](https://github.com/AndreasLoow/cvc5-wasm/releases) and
+serve `cvc5.js` and `cvc5.wasm` side by side.  [task.md](task.md) is the
+specification this implements.
+
+## Why this exists
+
+The web verifier in [cse-exe](https://github.com/AndreasLoow/cse-exe) runs in
+the browser and checks a program by sending cvc5 a stream of small SMT-LIB
+queries -- 87 of them for its `swap` example alone, none of which takes long to
+solve.  For that workload the cost is not solving; it is getting to the solver.
+
+cvc5 attaches `cvc5-Wasm.zip` to every release, but that is the *command-line
+binary* compiled with emscripten, and its only entry point is `main`.  Every
+query means writing the script into the emscripten virtual filesystem, calling
+`callMain`, and letting cvc5 start up, parse, solve and shut down again --
+about **46 ms** per query in Chromium on the machine these numbers come from,
+whether the query is trivial or real, and **4.58 s** for one pass of those 87
+queries.  Driving `main` also needs three workarounds: the glue is not
+`MODULARIZE`d and rejects `wasmBinary`/`instantiateWasm`; `callMain` leaks the
+wasm stack and dies after roughly 137 calls; and `--early-exit` skips
+destructors and leaks megabytes of heap per call.
+
+This repository builds the same cvc5 -- same version, same tag, sources
+unpatched but for [one performance fix](#the-patch-to-cvc5) -- as a *library*
+behind a small C++ wrapper with a real entry point.  The module is instantiated
+once per session and each query is a plain synchronous function call, so
+startup is paid once, all three workarounds go away, and a query costs
+**2.6 ms** instead of 46 ms, with the 87-query pass at **1.04 s** instead of
+4.58 s.  What it does not change is the interface: queries go in as SMT-LIB
+text and answers come out as the text cvc5's binary would have printed, so a
+consumer that already builds scripts and reads verdicts does not have to change
+how it talks to the solver.
 
 ## What is in a release
 
@@ -77,12 +101,36 @@ the strings in and out for you.
 * Every C++ exception -- `CVC5ApiException`, parser errors, option errors,
   `std::bad_alloc`, anything -- is caught inside `cvc5_solve` and rendered as
   `(error "message")` in the returned string, with the same quoting cvc5 itself
-  uses.  Nothing escapes into JavaScript as a thrown value, and a rejected
-  script leaves the module able to answer the next one.  A successful run never
-  contains the substring `error`.
-* Warnings, the explanation cvc5 prints after `unknown`, and `--verbose`
-  chatter go to emscripten's `printErr` (stderr under node), never into the
-  returned string.
+  uses.  No cvc5 exception escapes into JavaScript as a thrown value -- see
+  *When `solve` throws* for the two runtime-level ones that can -- and a
+  rejected script leaves the module able to answer the next one.  A successful
+  run never contains the substring `error`.
+* Parser errors carry their location, the way the binary prints them:
+  `(error "Parse Error: query:1.13: Symbol 'foo' not declared as a variable")`.
+  (`query` is the input name the wrapper gives the parser.)
+* Warnings and `--verbose` chatter go to emscripten's `printErr` (stderr under
+  node), never into the returned string.
+* Results print SMT-LIB style: `unknown`, not the `unknown (INCOMPLETE)` cvc5
+  prints for a stream whose output language it has not been told.  Declaring
+  that language is the one option the wrapper sets on the solver
+  (`output-language=smt2`); the binary sets it too, from its input language, and
+  a script can still override it.  Everything else belongs in the script.
+
+### When `solve` throws
+
+Never for anything the solver has an opinion about -- a rejected script,
+an unknown option, a resource-out are all `(error ...)` or `unknown` strings.
+There are exactly two exceptions, both from the runtime rather than from cvc5:
+
+* `RuntimeError` -- the wasm instance trapped, which a genuine cvc5 crash is.
+  The instance is dead for good; build a new one with `createCvc5()`.  See
+  *Crashes*.
+* `RangeError: Maximum call stack size exceeded` -- input nested thousands of
+  levels deep exhausted the engine's call stack.  The module survives this and
+  answers the next query normally.  See *Very deeply nested input*.
+
+Treating any throw as "make a fresh instance" is always safe; distinguishing
+them only saves the cost of doing so unnecessarily.
 
 ### State between calls
 

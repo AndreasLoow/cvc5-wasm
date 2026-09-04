@@ -50,7 +50,9 @@ M.heapSize(): number              // current wasm heap size in bytes
 ```
 
 `solve` is synchronous and may be called as often as you like; the module
-stays alive for the whole session.  On a 4-core Linux machine a trivial query
+stays alive for the whole session, which is the point of this build: cvc5's own
+`cvc5-Wasm.zip` is the command-line binary, whose only entry point is `main`,
+so every query there pays cvc5's whole startup and teardown.  On a 4-core Linux machine a trivial query
 costs about 2.6 ms in Chromium and 2.4 ms under node, and one pass of the 87
 real queries this was built for takes about 1 s -- against about 46 ms and
 4.6 s for cvc5's own `cvc5-Wasm.zip` driven through `callMain` in the same
@@ -67,10 +69,16 @@ browser.
   `std::bad_alloc` -- is caught and rendered as `(error "message")` in the
   returned string, with the same quoting cvc5 itself uses.  A rejected script
   leaves the module able to answer the next one.  A successful run never
-  contains the substring `error`.
-* Warnings, the explanation printed after `unknown`, and `--verbose` chatter go
-  to emscripten's `printErr` (stderr under node), never into the returned
-  string.
+  contains the substring `error`.  `solve` itself throws only in the two cases
+  under *Crashes* below, both of them from the runtime rather than from cvc5.
+* Parser errors carry their location, the way the cvc5 binary prints them:
+  `(error "Parse Error: query:1.13: Symbol 'foo' not declared as a variable")`.
+* Warnings and `--verbose` chatter go to emscripten's `printErr` (stderr under
+  node), never into the returned string.
+* Results print SMT-LIB style: `unknown`, not the `unknown (INCOMPLETE)` cvc5
+  prints for a stream whose output language it has not been told.  Declaring
+  that language (`output-language=smt2`) is the one option this wrapper sets
+  for you; the binary sets it too, and a script can still override it.
 
 ### State between calls
 
