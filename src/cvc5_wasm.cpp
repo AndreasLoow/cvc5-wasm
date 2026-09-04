@@ -5,7 +5,8 @@
  *
  * Two designs for the state between calls are implemented; see README.md.
  *   default                          fresh TermManager/Solver/SymbolManager per call
- *   -DCVC5_WASM_PERSISTENT_SOLVER    one session, SMT-LIB (reset) between calls
+ *   -DCVC5_WASM_PERSISTENT_SOLVER    one TermManager for the session, fresh
+ *                                    Solver and SymbolManager per call
  */
 #include <cvc5/cvc5.h>
 #include <cvc5/cvc5_parser.h>
