@@ -25,6 +25,14 @@ cvc5_build=$cvc5_dir/build
 # 1 = fresh TermManager/Solver/SymbolManager per call (the shipped design),
 # 2 = one session reset between calls.  See README.md.
 design=${DESIGN:-1}
+# js   = -fexceptions, emscripten's JavaScript-based exceptions (task.md's flag)
+# wasm = -fwasm-exceptions, the wasm exception-handling proposal
+exceptions=${EXCEPTIONS:-js}
+case $exceptions in
+  js) exception_flag=-fexceptions ;;
+  wasm) exception_flag=-fwasm-exceptions ;;
+  *) echo "EXCEPTIONS must be js or wasm, not $exceptions" >&2; exit 1 ;;
+esac
 jobs=${JOBS:-$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu || echo 4 )}
 
 msg() { echo "[build.sh] $*"; }
@@ -69,7 +77,7 @@ build_cvc5() {
     msg "configuring cvc5"
     (cd "$cvc5_dir" && ./configure.sh production \
         --static --static-binary --auto-download --wasm=JS \
-        -DCMAKE_CXX_FLAGS=-fexceptions)
+        "-DCMAKE_CXX_FLAGS=$exception_flag")
   fi
   DEPS_CACHE="$build_root/dlcache" "$repo_dir/tools/prefetch-deps.sh" "$cvc5_build"
   msg "building libcvc5.a and libcvc5parser.a with $jobs jobs"
@@ -86,12 +94,18 @@ link_wrapper() {
   for lib in libcvc5parser.a libcvc5.a; do
     libs+=("$(find "$cvc5_build/src" -name "$lib" | head -1)")
   done
-  for lib in libpolyxx.a libpoly.a libcadical.a libgmpxx.a libgmp.a; do
+  # LibPoly is built as libpicpoly*.a (static PIC), and its C++ wrapper needs
+  # the C library after it.  Anything else --auto-download produced follows.
+  for lib in libpolyxx.a libpicpolyxx.a libpoly.a libpicpoly.a \
+             libcadical.a libgmpxx.a libgmp.a; do
     [ -f "$cvc5_build/deps/lib/$lib" ] && libs+=("$cvc5_build/deps/lib/$lib")
+  done
+  for lib in "$cvc5_build"/deps/lib/*.a; do
+    case " ${libs[*]} " in *" $lib "*) ;; *) libs+=("$lib") ;; esac
   done
 
   emcc_args=(
-    -O2 -fexceptions
+    -O2 "$exception_flag"
     -sMODULARIZE=1 -sEXPORT_NAME=createCvc5
     -sENVIRONMENT=web,worker,node
     -sALLOW_MEMORY_GROWTH=1
@@ -124,6 +138,7 @@ write_metadata() {
   "cvc5_wasm": "$(git -C "$repo_dir" describe --tags --always --dirty 2>/dev/null || echo unknown)",
   "built": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "design": $design,
+  "exceptions": "$exception_flag",
   "emcc": "$emcc_version",
   "flags": "em++ ${emcc_args[*]} <objects> -o cvc5.js"
 }

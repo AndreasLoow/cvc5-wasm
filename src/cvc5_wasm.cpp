@@ -54,56 +54,31 @@ void invokeAll(Solver* slv,
 
 #ifdef CVC5_WASM_PERSISTENT_SOLVER
 
-/** Design 2: one solver for the session, reset after each script. */
-struct Session
-{
-  Session() : d_tm(), d_slv(d_tm), d_sm(d_tm) {}
-  TermManager d_tm;
-  Solver d_slv;
-  SymbolManager d_sm;
-};
-
-Session* g_session = nullptr;
+/**
+ * Design 2: one TermManager for the session, so its caches stay warm, with a
+ * fresh Solver and SymbolManager per call.  That is what SMT-LIB `(reset)`
+ * does -- cvc5's own ResetCommand destroys the solver and reconstructs it on
+ * the same term manager with its original options -- except that the symbol
+ * manager is replaced rather than reset, because SymManager::reset() keeps its
+ * logic flag set, which makes the next script's (set-logic ...) fail.
+ */
+TermManager* g_tm = nullptr;
 
 void discardSession()
 {
-  delete g_session;
-  g_session = nullptr;
+  delete g_tm;
+  g_tm = nullptr;
 }
 
 void runScript(const std::string& script, std::ostream& out)
 {
-  if (g_session == nullptr)
+  if (g_tm == nullptr)
   {
-    g_session = new Session();
+    g_tm = new TermManager();
   }
-  try
-  {
-    invokeAll(&g_session->d_slv, &g_session->d_sm, script, out);
-  }
-  catch (...)
-  {
-    // Reset before letting the failure out, so the next call starts clean.
-    try
-    {
-      std::ostringstream sink;
-      invokeAll(&g_session->d_slv, &g_session->d_sm, "(reset)", sink);
-    }
-    catch (...)
-    {
-      discardSession();
-    }
-    throw;
-  }
-  try
-  {
-    std::ostringstream sink;
-    invokeAll(&g_session->d_slv, &g_session->d_sm, "(reset)", sink);
-  }
-  catch (...)
-  {
-    discardSession();
-  }
+  Solver slv(*g_tm);
+  SymbolManager sm(*g_tm);
+  invokeAll(&slv, &sm, script, out);
 }
 
 #else

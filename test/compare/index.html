@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>cvc5-Wasm.zip (CLI build) reference measurement</title>
+  </head>
+  <body>
+    <h1>cvc5's own cvc5-Wasm.zip, driven through <code>callMain</code></h1>
+    <p>
+      The artefact this repository replaces: cvc5's command-line binary compiled with emscripten, so every query means
+      writing the script into the virtual filesystem and re-entering <code>main</code>. Loaded from the directory given
+      by <code>?cli=</code>, measured in the same browser on the same machine as
+      <a href="/test/browser/index.html">the library build's test page</a>, so the two numbers can be compared.
+    </p>
+    <p>
+      <code>?mode=trivial</code> times the trivial query; <code>?mode=corpus</code> runs one pass of
+      <code>bench/swap/</code>. They are separate page loads on purpose: <code>callMain</code> leaks the wasm stack and
+      dies after roughly 137 calls, which is one of the workarounds a library build removes.
+    </p>
+    <pre id="out">running...</pre>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const cliDir = params.get("cli") || "/.build/cli/cvc5-Wasm";
+      const mode = params.get("mode") || "trivial";
+      const out = document.getElementById("out");
+      const lines = [];
+      function line(t) {
+        lines.push(t);
+        out.textContent = lines.join("\n");
+      }
+
+      let stdout = [];
+      var Module = {
+        locateFile: (f) => cliDir + "/" + f,
+        print: (t) => stdout.push(t),
+        printErr: () => {},
+        arguments: ["--help"], // the run at startup; the measured calls use callMain
+        onRuntimeInitialized: () => setTimeout(main, 0),
+      };
+
+      function solve(script) {
+        Module.FS.writeFile("/query.smt2", script);
+        stdout = [];
+        Module.callMain(["/query.smt2"]);
+        return stdout.join("\n");
+      }
+
+      async function corpus() {
+        const tsv = await (await fetch("/bench/swap/expected.tsv")).text();
+        const rows = tsv.split("\n").filter((l) => l.trim() !== "");
+        const qs = [];
+        for (const row of rows) {
+          const [name, verdict] = row.split(/\s+/);
+          qs.push({ name, verdict, script: await (await fetch(`/bench/swap/${name}.smt2`)).text() });
+        }
+        return qs;
+      }
+
+      async function main() {
+        const TRIVIAL = "(set-logic ALL)\n(check-sat)\n";
+        try {
+          if (mode === "trivial") {
+            for (let i = 0; i < 3; i++) solve(TRIVIAL);
+            const n = 20;
+            const t = performance.now();
+            for (let i = 0; i < n; i++) solve(TRIVIAL);
+            const per = (performance.now() - t) / n;
+            line(`answer: ${JSON.stringify(solve(TRIVIAL).trim())}`);
+            line(`trivial query: ${per.toFixed(2)} ms per callMain (mean of ${n})`);
+            window.__cliResult = { mode, perTrivialMs: per };
+          } else {
+            const qs = await corpus();
+            let wrong = 0;
+            const t = performance.now();
+            for (const q of qs) if (solve(q.script).trim().split(/\s+/)[0] !== q.verdict) wrong++;
+            const total = (performance.now() - t) / 1000;
+            line(`swap corpus: ${total.toFixed(2)} s for ${qs.length} queries, ${wrong} unexpected verdict(s)`);
+            window.__cliResult = { mode, corpusSeconds: total, wrong };
+          }
+        } catch (e) {
+          line("failed: " + (e && e.stack ? e.stack : e));
+          window.__cliResult = { mode, error: String(e) };
+        }
+      }
+    </script>
+    <script src="/.build/cli/cvc5-Wasm/cvc5.js"></script>
+  </body>
+</html>
