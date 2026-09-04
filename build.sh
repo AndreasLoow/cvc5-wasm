@@ -25,9 +25,10 @@ cvc5_build=$cvc5_dir/build
 # 1 = fresh TermManager/Solver/SymbolManager per call (the shipped design),
 # 2 = one session reset between calls.  See README.md.
 design=${DESIGN:-1}
-# js   = -fexceptions, emscripten's JavaScript-based exceptions (task.md's flag)
-# wasm = -fwasm-exceptions, the wasm exception-handling proposal
-exceptions=${EXCEPTIONS:-js}
+# wasm = -fwasm-exceptions, the wasm exception-handling proposal (shipped)
+# js   = -fexceptions, emscripten's JavaScript-based exceptions: twice as
+#        slow and 9 MB larger, for a runtime without wasm exception handling
+exceptions=${EXCEPTIONS:-wasm}
 case $exceptions in
   js) exception_flag=-fexceptions ;;
   wasm) exception_flag=-fwasm-exceptions ;;

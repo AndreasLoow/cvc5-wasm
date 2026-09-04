@@ -1,4 +1,4 @@
-// npm test: the six tests from task.md, against dist/ under node.
+// npm test: six tests against dist/ under node; README.md lists them.
 //
 //   node test/run.cjs [dist-dir]
 //

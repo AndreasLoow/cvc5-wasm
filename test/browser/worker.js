@@ -1,5 +1,5 @@
 // Classic (non-module) Web Worker: loads the library with importScripts and
-// runs tests 1-4 and 6 from task.md.  Results go back to the page as messages.
+// runs node tests 1-4 and 6 (see README.md).  Results go back to the page as messages.
 "use strict";
 
 // The directory holding cvc5.js/cvc5.wasm, "/dist" unless the page passes

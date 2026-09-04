@@ -14,8 +14,7 @@ session; every `solve` call starts from a clean solver.
 
 Releases carry the built artefacts: fetch `cvc5-wasm-<tag>.zip` (or `.tar.gz`)
 from the [releases page](https://github.com/AndreasLoow/cvc5-wasm/releases) and
-serve `cvc5.js` and `cvc5.wasm` side by side.  [task.md](task.md) is the
-specification this implements.
+serve `cvc5.js` and `cvc5.wasm` side by side.
 
 ## Why this exists
 
@@ -40,7 +39,7 @@ unpatched but for [one performance fix](#the-patch-to-cvc5) -- as a *library*
 behind a small C++ wrapper with a real entry point.  The module is instantiated
 once per session and each query is a plain synchronous function call, so
 startup is paid once, all three workarounds go away, and a query costs
-**2.6 ms** instead of 46 ms, with the 87-query pass at **1.04 s** instead of
+**1.5 ms** instead of 46 ms, with the 87-query pass at **0.50 s** instead of
 4.58 s.  What it does not change is the interface: queries go in as SMT-LIB
 text and answers come out as the text cvc5's binary would have printed, so a
 consumer that already builds scripts and reads verdicts does not have to change
@@ -139,13 +138,14 @@ them only saves the cost of doing so unnecessarily.
 structural rather than something the wrapper has to maintain.  Put every option
 a query needs into the script itself.
 
-task.md asks for both designs to be measured.  `src/cvc5_wasm.cpp` also
+Both designs were measured.  `src/cvc5_wasm.cpp` also
 implements design 2 -- one `TermManager` kept for the session, with a fresh
 `Solver` and `SymbolManager` per call, which is exactly what cvc5's own
 `ResetCommand` does for SMT-LIB `(reset)` (`Cmd::resetSolver` destroys the
 solver and reconstructs it on the same term manager with its original options)
 -- behind `-DCVC5_WASM_PERSISTENT_SOLVER`, and `DESIGN=2 ./build.sh` links it.
-Measured with the same `npm test` harness under node:
+Measured with the same `npm test` harness under node (on the `-fexceptions`
+build; the comparison, not the absolute numbers, is the point):
 
 | design | trivial query | swap corpus | heap after 20 corpus passes |
 |---|---|---|---|
@@ -202,8 +202,8 @@ All numbers below are from one machine: a 4-core x86-64 Linux container, node
 22.22.2, headless Chromium 151 and Firefox 153 driven by playwright, the page
 served over `http://localhost` with plain static headers.  Native cvc5 1.3.4
 (the official Linux static binary) does the corpus in 0.74 s and a trivial
-query in 5 ms per process on this machine, against the 0.7 s and ~8 ms task.md
-reports for macOS, so these numbers are comparable with the ones there.
+query in 5 ms per process on this machine, against the 0.7 s and ~8 ms measured
+on the macOS machine the corpus was captured on, so the two are comparable.
 
 Trivial query is `(set-logic ALL)\n(check-sat)\n`, the mean of 100 calls after
 20 warm-up calls.  Swap corpus is one pass of the 87 queries in `bench/swap/`.
@@ -211,17 +211,17 @@ Trivial query is `(set-logic ALL)\n(check-sat)\n`, the mean of 100 calls after
 | where | trivial query | swap corpus | target |
 |---|---|---|---|
 | native cvc5 1.3.4, one process per query | 5 ms | 0.74 s | -- |
-| **this build, node 22** | **2.37 ms** | **0.86 s** | trivial < 3 ms |
-| **this build, Chromium 151** | **2.57 ms** | **1.04 s** | trivial < 10 ms, corpus < 2 s |
-| this build, Firefox 153 | 8.79 ms | 3.18 s | -- |
+| **this build, node 22** | **1.36 ms** | **0.38 s** | trivial < 3 ms |
+| **this build, Chromium 151** | **1.52 ms** | **0.50 s** | trivial < 10 ms, corpus < 2 s |
+| this build, Firefox 153 | 5.72 ms | 2.04 s | -- |
 | `cvc5-Wasm.zip` 1.3.4 via `callMain`, Chromium 151 | 45.96 ms | 4.58 s | -- |
 
-Every target in task.md is met.  A query now costs less than a native process
-does, because the module is already up: the remaining per-call cost is building
-and tearing down one solver.  Firefox runs the same code about 3x slower than
-Chromium; it is still inside the browser target for a single query, though not
-by much, and 3.2 s for a whole corpus pass is the one number a Firefox user
-would notice.  Repeated runs of the same build vary by roughly 15%, so read
+Every target is met, and in Chromium the corpus takes the same 0.5 s that z3
+(npm `z3-solver`) takes for it in the consumer.  A query now costs less than a
+native process does, because the module is already up: the remaining per-call
+cost is building and tearing down one solver.  Firefox runs the same code about
+4x slower than Chromium; it is inside the browser target for a single query,
+and 2 s for a whole corpus pass is the one number a Firefox user would notice.  Repeated runs of the same build vary by roughly 15%, so read
 these to two significant figures at most.
 
 The `cvc5-Wasm.zip` row is cvc5's own artefact measured the way the consumer
@@ -232,46 +232,46 @@ drives it today, in the same browser on the same machine
 
 | file | raw | gzip -9 |
 |---|---|---|
-| `cvc5.wasm` | 30,842,613 | 5,733,836 |
-| `cvc5.js` | 94,846 | 22,061 |
+| `cvc5.wasm` (`-fwasm-exceptions`, shipped) | 21.9 MB | see the release notes |
+| `cvc5.wasm` (`-fexceptions`) | 30,842,613 | 5,733,836 |
+| `cvc5.js` | ~95 kB | ~22 kB |
 | (`cvc5-Wasm.zip`'s `cvc5.wasm`, for comparison) | 18,882,345 | 3,953,989 |
 
-The wasm is 1.6x the size of cvc5's CLI build -- 30.8 MB against the ~19 MB
-task.md expects -- and the difference is almost entirely working C++
-exceptions.  cvc5's own wasm build passes `-s NO_DISABLE_EXCEPTION_CATCHING=1`
-at link time only, so its objects are compiled with catch handlers dropped;
-this build compiles cvc5 and the wrapper with `-fexceptions`, which the output
-contract needs, and that adds landing pads and `invoke_*` thunks throughout.
-The same build with `-fwasm-exceptions` instead is 21.9 MB (see below), which
-puts the rest of the gap at about 3 MB of larger `-O2` output and LibPoly.
+Each release's notes carry the exact byte counts of what it ships.  The
+shipped wasm is about 3 MB larger than cvc5's CLI build: larger `-O2` output,
+and LibPoly.  The `-fexceptions` build is 9 MB larger again, and that is
+entirely working C++ exceptions: cvc5's own wasm build passes
+`-s NO_DISABLE_EXCEPTION_CATCHING=1` at link time only, so its objects are
+compiled with catch handlers dropped, whereas this build compiles cvc5 and the
+wrapper with exceptions on, which the output contract needs, and JavaScript-based
+exceptions add landing pads and `invoke_*` thunks throughout.
 
 ### Exceptions: `-fexceptions` versus `-fwasm-exceptions`
 
-The shipped build uses `-fexceptions`, emscripten's JavaScript-based
-exceptions, as task.md requires.  `EXCEPTIONS=wasm ./build.sh` builds the same
-thing with `-fwasm-exceptions`, the wasm exception-handling proposal, which is
-measurably better on every axis:
+The shipped build uses `-fwasm-exceptions`, the wasm exception-handling
+proposal.  `EXCEPTIONS=js ./build.sh` builds the same thing with
+`-fexceptions`, emscripten's JavaScript-based exceptions, which is measurably
+worse on every axis:
 
 | build | `cvc5.wasm` | node trivial | node corpus | Chromium trivial | Chromium corpus | Firefox trivial | Firefox corpus |
 |---|---|---|---|---|---|---|---|
-| `-fexceptions` (shipped) | 30.8 MB | 2.37 ms | 0.86 s | 2.57 ms | 1.04 s | 8.79 ms | 3.18 s |
-| `-fwasm-exceptions` | 21.9 MB | 1.36 ms | 0.38 s | 1.52 ms | 0.50 s | 5.72 ms | 2.04 s |
+| `-fwasm-exceptions` (shipped) | 21.9 MB | 1.36 ms | 0.38 s | 1.52 ms | 0.50 s | 5.72 ms | 2.04 s |
+| `-fexceptions` | 30.8 MB | 2.37 ms | 0.86 s | 2.57 ms | 1.04 s | 8.79 ms | 3.18 s |
 
-Roughly twice as fast and 9 MB smaller, with all six node tests passing and
-both browser test pages green.  Deeply nested input behaves the same either
-way (see below).  It is not shipped because task.md prescribes
-`-fexceptions`, and because it needs wasm exception handling in the runtime:
-Chrome 95+, Firefox 131+, Safari 15.2+, node 16+.  Every browser and node
-version this repository targets qualifies, so switching is a reasonable call
-for the consumer to make -- it is one environment variable at build time and no
-change to the API.
+Both pass all six node tests and both browser test pages, and deeply nested
+input behaves the same either way (see above).  Wasm exception handling needs
+support in the runtime -- Chrome 95+, Firefox 131+, Safari 15.2+, node 16+ --
+and every browser and node version this repository targets qualifies.  The
+`-fexceptions` build stays one environment variable away, with no change to the
+API, for a runtime that lacks it.
 
 ### The patch to cvc5
 
 `patches/0001-seed-gmp-random-state-lazily.patch` is the one patch this
-repository applies to cvc5, and it is why the targets are met.  Without it the
-trivial query costs 38 ms under node and 43 ms in Chromium, and the corpus
-4.1 s and 4.4 s -- about 4x over target, with nothing to show for it.
+repository applies to cvc5, and it is why the targets are met.  Without it
+(measured on the `-fexceptions` build) the trivial query costs 38 ms under node
+and 43 ms in Chromium, and the corpus 4.1 s and 4.4 s -- about 4x over target,
+with nothing to show for it.
 
 Profiling with `node --cpu-prof` said 79% of a trivial query was GMP bignum
 arithmetic under `gmp_randseed_ui`.  GMP seeds its Mersenne-Twister state by
@@ -299,7 +299,7 @@ patch.
 
 ## Tests
 
-`npm test` runs the six tests from task.md against `dist/` under node:
+`npm test` runs six tests against `dist/` under node:
 
 1. **trivial** -- `(set-logic ALL)(check-sat)` is `sat`, and `version()` is `1.3.4`.
 2. **swap corpus** -- each of the 87 real queries in `bench/swap/` gives the
@@ -343,23 +343,25 @@ cvc5's own wasm CI does
 
 ```sh
 ./configure.sh production --static --static-binary --auto-download --wasm=JS \
-    -DCMAKE_CXX_FLAGS=-fexceptions
+    -DCMAKE_CXX_FLAGS=-fwasm-exceptions
 ```
 
 builds only `libcvc5.a` and `libcvc5parser.a` (the command-line binary is not
 needed), links `src/cvc5_wasm.cpp` against them with `em++`, and writes `dist/`.
 Two things are worth knowing about that configure line:
 
-* `-DCMAKE_CXX_FLAGS=-fexceptions` -- cvc5 reports errors by throwing, and
-  emscripten drops `catch` handlers unless exceptions are compiled in.  cvc5's
-  own build only adds `-fexceptions` for C.
+* `-DCMAKE_CXX_FLAGS=-fwasm-exceptions` -- cvc5 reports errors by throwing,
+  and emscripten drops `catch` handlers unless exceptions are compiled in.
+  cvc5's own build only adds `-fexceptions` for C.  See *Exceptions* above for
+  why the wasm flavour.
 * no `--ninja` -- LibPoly's CMake declares two rules for `libpoly.a` when the
   target has no shared libraries, which Ninja rejects and Make tolerates.
 
-The link line is task.md's, plus `-sSTACK_SIZE=8388608` (see *Very deeply
-nested input*); `VERSION.json` records it verbatim.
+The link line is in `link_wrapper` in `build.sh`; `VERSION.json` records it
+verbatim.  `-sSTACK_SIZE=8388608` is explained under *Very deeply nested
+input*.
 
-Knobs: `DESIGN=1|2`, `EXCEPTIONS=js|wasm`, `JOBS=n`, `BUILD_ROOT=...`,
+Knobs: `DESIGN=1|2`, `EXCEPTIONS=wasm|js`, `JOBS=n`, `BUILD_ROOT=...`,
 `DIST_DIR=...`.
 
 `tools/prefetch-deps.sh` fills cvc5's dependency download directory before the

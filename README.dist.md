@@ -53,8 +53,8 @@ M.heapSize(): number              // current wasm heap size in bytes
 stays alive for the whole session, which is the point of this build: cvc5's own
 `cvc5-Wasm.zip` is the command-line binary, whose only entry point is `main`,
 so every query there pays cvc5's whole startup and teardown.  On a 4-core Linux machine a trivial query
-costs about 2.6 ms in Chromium and 2.4 ms under node, and one pass of the 87
-real queries this was built for takes about 1 s -- against about 46 ms and
+costs about 1.5 ms in Chromium and 1.4 ms under node, and one pass of the 87
+real queries this was built for takes about 0.5 s -- against about 46 ms and
 4.6 s for cvc5's own `cvc5-Wasm.zip` driven through `callMain` in the same
 browser.
 
