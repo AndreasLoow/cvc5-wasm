@@ -4,7 +4,11 @@
 one persistent module, one synchronous `solve(script)` call, no per-query
 process startup.  Built by
 [AndreasLoow/cvc5-wasm](https://github.com/AndreasLoow/cvc5-wasm); see
-`VERSION.json` for the exact cvc5 commit, emsdk version and link flags.
+`VERSION.json` for the exact cvc5 commit, emsdk version, link flags, and the
+one patch applied to cvc5 (it makes cvc5 seed GMP's random state on first use
+instead of twice per query, which is 79% of the wall clock of a small query in
+WebAssembly; nothing else about cvc5 is changed, and the repository's README
+explains it in full).
 
 ## Files
 
@@ -46,7 +50,11 @@ M.heapSize(): number              // current wasm heap size in bytes
 ```
 
 `solve` is synchronous and may be called as often as you like; the module
-stays alive for the whole session.
+stays alive for the whole session.  On a 4-core Linux machine a trivial query
+costs about 2.4 ms in Chromium and 2.4 ms under node, and one pass of the 87
+real queries this was built for takes about 1 s -- against about 46 ms and
+4.6 s for cvc5's own `cvc5-Wasm.zip` driven through `callMain` in the same
+browser.
 
 ### Output contract
 

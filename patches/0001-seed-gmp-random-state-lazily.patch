@@ -1,0 +1,117 @@
+Seed GMP's random state lazily
+
+Driven as a library, cvc5 seeds a GMP random state twice per query: once
+for the Random that Solver::Solver constructs, and once when
+SolverEngine::finishInit re-seeds the process-wide Random singleton.  GMP seeds its Mersenne-Twister state by
+"mangling by powering": a modular exponentiation with a 19937-bit
+modulus.  Natively, with GMP's assembly mpn routines, that is a
+millisecond or two; in WebAssembly, where GMP is built from generic C,
+it is about 15 ms.  It was 79% of the wall clock of a trivial query
+(profiled with node --cpu-prof against this build).
+
+Nothing in a normal solve reads that state: it is reachable only through
+Random::getGMPRandstate(), whose only callers are Integer::mkRandom and
+BitVector::mkRandom.  So initialize and seed it on first access instead
+of in the constructor and in setSeed.  Behaviour is unchanged for every
+caller -- the state a caller gets is still one seeded with the current
+seed, re-seeded after each setSeed -- and the trivial query drops from
+about 40 ms to about 10 ms.
+
+Applied by build.sh; see README.md.  Worth sending upstream.
+
+diff --git a/src/util/random.cpp b/src/util/random.cpp
+index 9907250..3e476cb 100644
+--- a/src/util/random.cpp
++++ b/src/util/random.cpp
+@@ -16,27 +16,41 @@
+ 
+ namespace cvc5::internal {
+ 
+-Random::Random(uint64_t seed)
++Random::Random(uint64_t seed) { setSeed(seed); }
++
++Random::~Random()
+ {
+ #ifdef CVC5_GMP_IMP
+-  gmp_randinit_mt(d_gmp_randstate);
++  if (d_gmp_randstate_initialized)
++  {
++    gmp_randclear(d_gmp_randstate);
++  }
+ #endif
+-  setSeed(seed);
+ }
+ 
+-Random::~Random()
+-{
+ #ifdef CVC5_GMP_IMP
+-  gmp_randclear(d_gmp_randstate);
+-#endif
++void Random::seedGMPRandstate()
++{
++  if (!d_gmp_randstate_initialized)
++  {
++    gmp_randinit_mt(d_gmp_randstate);
++    d_gmp_randstate_initialized = true;
++  }
++  gmp_randseed_ui(d_gmp_randstate, d_seed);
++  d_gmp_randstate_seeded = true;
+ }
++#endif
+ 
+ void Random::setSeed(uint64_t seed)
+ {
+   d_seed = seed == 0 ? ~seed : seed;
+   d_rng.seed(d_seed);
+ #ifdef CVC5_GMP_IMP
+-  gmp_randseed_ui(d_gmp_randstate, d_seed);
++  // Seeding GMP's Mersenne-Twister state is a modular exponentiation with a
++  // 19937-bit modulus: milliseconds without assembly, as in WebAssembly.  The
++  // state is only reachable through getGMPRandstate(), so seed it there, when
++  // something actually asks for it.
++  d_gmp_randstate_seeded = false;
+ #endif
+ #ifdef CVC5_CLN_IMP
+   // cln::random_state stores a 64 bit seed split into 32-bit hi and lo parts.
+diff --git a/src/util/random.h b/src/util/random.h
+index e46c0f8..6477df2 100644
+--- a/src/util/random.h
++++ b/src/util/random.h
+@@ -107,13 +107,25 @@ class Random
+   bool pickWithProb(double probability);
+ 
+ #ifdef CVC5_GMP_IMP
+-  gmp_randstate_t* getGMPRandstate() { return &d_gmp_randstate; }
++  gmp_randstate_t* getGMPRandstate()
++  {
++    if (!d_gmp_randstate_seeded)
++    {
++      seedGMPRandstate();
++    }
++    return &d_gmp_randstate;
++  }
+ #endif
+ #ifdef CVC5_CLN_IMP
+   cln::random_state* getCLNRandstate() { return &d_cln_randstate; }
+ #endif
+ 
+  private:
++#ifdef CVC5_GMP_IMP
++  /** Initialize (if necessary) and seed the GMP random state. */
++  void seedGMPRandstate();
++#endif
++
+   /* The seed of the RNG. */
+   uint64_t d_seed;
+   /** The underlying RNG Mersenne Twister engine. */
+@@ -121,6 +133,10 @@ class Random
+ 
+ #ifdef CVC5_GMP_IMP
+   gmp_randstate_t d_gmp_randstate;
++  /** Whether d_gmp_randstate has been initialized. */
++  bool d_gmp_randstate_initialized = false;
++  /** Whether d_gmp_randstate has been seeded with d_seed. */
++  bool d_gmp_randstate_seeded = false;
+ #endif
+ #ifdef CVC5_CLN_IMP
+   cln::random_state d_cln_randstate;

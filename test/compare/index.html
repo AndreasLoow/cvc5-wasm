@@ -22,27 +22,30 @@
       const params = new URLSearchParams(location.search);
       const cliDir = params.get("cli") || "/.build/cli/cvc5-Wasm";
       const mode = params.get("mode") || "trivial";
-      const out = document.getElementById("out");
+      // cvc5.js (the CLI glue) declares globals of its own, "out" among them.
+      const pre = document.getElementById("out");
       const lines = [];
       function line(t) {
         lines.push(t);
-        out.textContent = lines.join("\n");
+        pre.textContent = lines.join("\n");
       }
 
-      let stdout = [];
+      let captured = [];
       var Module = {
         locateFile: (f) => cliDir + "/" + f,
-        print: (t) => stdout.push(t),
+        print: (t) => captured.push(t),
         printErr: () => {},
-        arguments: ["--help"], // the run at startup; the measured calls use callMain
+        // INVOKE_RUN=1 in cvc5's own build means main() runs once at startup
+        // with no arguments (it reads stdin, gets EOF, and returns); the
+        // measured calls re-enter it through callMain.
         onRuntimeInitialized: () => setTimeout(main, 0),
       };
 
       function solve(script) {
         Module.FS.writeFile("/query.smt2", script);
-        stdout = [];
+        captured = [];
         Module.callMain(["/query.smt2"]);
-        return stdout.join("\n");
+        return captured.join("\n");
       }
 
       async function corpus() {

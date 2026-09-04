@@ -39,6 +39,12 @@ void invokeAll(Solver* slv,
                const std::string& script,
                std::ostream& out)
 {
+  // The one option the wrapper sets: everything else belongs in the script.
+  // cvc5's printers treat an unconfigured stream as SMT-LIB 2.6 already, but
+  // Result does not -- it would print "unknown (INCOMPLETE)" where the cvc5
+  // binary prints "unknown".  The binary sets this too, from its input
+  // language; a script can still override it.
+  slv->setOption("output-language", "smt2");
   InputParser parser(slv, sm);
   parser.setStringInput(modes::InputLanguage::SMT_LIB_2_6, script, "query");
   for (;;)
@@ -106,6 +112,14 @@ const char* cvc5_solve(const char* script)
   try
   {
     runScript(script == nullptr ? std::string() : std::string(script), out);
+  }
+  catch (const parser::ParserException& e)
+  {
+    // Render it the way the cvc5 binary does, with the location:
+    // (error "Parse Error: query:1.13: Symbol 'foo' not declared as a variable")
+    std::ostringstream msg;
+    e.toStream(msg);
+    out << "(error " << quoteMessage(msg.str()) << ')' << std::endl;
   }
   catch (const std::exception& e)
   {

@@ -57,6 +57,7 @@ async function main() {
   console.log("\n1. trivial");
   const trivial = M.solve(TRIVIAL);
   check("(set-logic ALL)(check-sat) is sat", trivial.trim() === "sat", JSON.stringify(trivial));
+  check("version() is 1.3.4", M.version() === "1.3.4", JSON.stringify(M.version()));
 
   // 2. swap corpus -----------------------------------------------------------
   console.log(`\n2. swap corpus (${corpus.length} queries)`);

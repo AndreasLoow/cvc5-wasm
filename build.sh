@@ -60,9 +60,35 @@ fetch_cvc5() {
     git clone --depth 1 --branch "$CVC5_TAG" https://github.com/cvc5/cvc5.git "$cvc5_dir"
   fi
   local have
-  have=$(git -C "$cvc5_dir" rev-parse HEAD)
+  have=$(git -C "$cvc5_dir" rev-parse "$CVC5_TAG^{commit}")
   [ "$have" = "$CVC5_COMMIT" ] \
-    || { msg "cvc5 checkout is $have, expected $CVC5_COMMIT ($CVC5_TAG)"; exit 1; }
+    || { msg "$CVC5_TAG is $have, expected $CVC5_COMMIT"; exit 1; }
+}
+
+# --- patches ---------------------------------------------------------------
+# cvc5's sources are otherwise untouched; each patch in patches/ carries its
+# own rationale, and README.md explains why it is there.  They are committed
+# in the checkout rather than left in the worktree, because cvc5 appends
+# "-modified" to the version it reports for a dirty tree.
+apply_patches() {
+  local p applied=()
+  for p in "$repo_dir"/patches/*.patch; do
+    [ -f "$p" ] || continue
+    if git -C "$cvc5_dir" apply --reverse --check "$p" >/dev/null 2>&1; then
+      msg "$(basename "$p") already applied"
+    elif git -C "$cvc5_dir" apply "$p"; then
+      msg "applied $(basename "$p")"
+      applied+=("$(basename "$p")")
+    else
+      msg "failed to apply $(basename "$p")"
+      exit 1
+    fi
+  done
+  if [ ${#applied[@]} -gt 0 ]; then
+    git -C "$cvc5_dir" \
+      -c user.email=build@cvc5-wasm.invalid -c user.name=cvc5-wasm \
+      commit -qam "cvc5-wasm patches: ${applied[*]}"
+  fi
 }
 
 # --- configure and build the static libraries ------------------------------
@@ -138,6 +164,7 @@ write_metadata() {
   "cvc5_wasm": "$(git -C "$repo_dir" describe --tags --always --dirty 2>/dev/null || echo unknown)",
   "built": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "design": $design,
+  "patches": "$(cd "$repo_dir/patches" 2>/dev/null && echo *.patch)",
   "exceptions": "$exception_flag",
   "emcc": "$emcc_version",
   "flags": "em++ ${emcc_args[*]} <objects> -o cvc5.js"
@@ -152,30 +179,30 @@ JSON
     echo "============================================"
     echo
     echo "cvc5 $CVC5_TAG ($CVC5_COMMIT) is BSD-3-Clause; see LICENSE."
-    echo "The dependencies below were fetched by cvc5's --auto-download and are"
-    echo "statically linked into cvc5.wasm.  Their full licence texts follow."
+    echo "The components below were fetched by cvc5's --auto-download and are"
+    echo "statically linked into cvc5.wasm, with the sources named here.  Every"
+    echo "licence file each one ships follows in full."
     echo
-    local d name
+    local d name url
     for d in "$cvc5_build"/deps/src/*-EP; do
       [ -d "$d" ] || continue
       name=$(basename "$d"); name=${name%-EP}
       [ "$name" = Murxla ] && continue
-      echo "  - $name"
+      url=$(sed -n 's/^url(s)=//p' "$d-stamp/$name-EP-urlinfo.txt" 2>/dev/null | head -1)
+      printf '  - %-8s %s\n' "$name" "$url"
     done
     for d in "$cvc5_build"/deps/src/*-EP; do
       [ -d "$d" ] || continue
       name=$(basename "$d"); name=${name%-EP}
       [ "$name" = Murxla ] && continue
       local f
-      for f in LICENSE LICENCE COPYING COPYING.LESSERv3 LICENSE.md COPYING.LIB; do
-        if [ -f "$d/$f" ]; then
-          echo
-          echo "--------------------------------------------------------------"
-          echo "$name -- $f"
-          echo "--------------------------------------------------------------"
-          cat "$d/$f"
-          break
-        fi
+      for f in "$d"/LICENSE* "$d"/LICENCE* "$d"/COPYING*; do
+        [ -f "$f" ] || continue
+        echo
+        echo "--------------------------------------------------------------"
+        echo "$name -- $(basename "$f")"
+        echo "--------------------------------------------------------------"
+        cat "$f"
       done
     done
   } > "$dist_dir/THIRD-PARTY-LICENSES"
@@ -193,6 +220,7 @@ report() {
 
 install_emsdk
 fetch_cvc5
+apply_patches
 build_cvc5
 link_wrapper
 write_metadata
