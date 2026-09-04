@@ -1,0 +1,104 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "tag name to use for a dry run (no release is published)"
+        required: false
+        default: "v0.0.0-dev"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Pick the tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = push ]; then
+            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build (emsdk + cvc5 + wrapper)
+        run: ./build.sh
+
+      - name: npm test (node)
+        run: npm test | tee node-test.log
+
+      - name: Browser test (Chromium and Firefox, no COOP/COEP)
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium firefox
+          npm run test:browser | tee browser-test.log
+
+      - name: Package
+        id: package
+        env:
+          TAG: ${{ steps.tag.outputs.name }}
+        run: |
+          tar -czf "cvc5-wasm-$TAG.tar.gz" -C dist .
+          (cd dist && zip -qr "../cvc5-wasm-$TAG.zip" .)
+          raw=$(wc -c < dist/cvc5.wasm)
+          gz=$(gzip -9 -c dist/cvc5.wasm | wc -c)
+          {
+            echo "## cvc5-wasm $TAG"
+            echo
+            echo "cvc5 as a WebAssembly library: one persistent module, one synchronous"
+            echo '`solve(script)` call.  See the README inside the archives for the API.'
+            echo
+            sed -n '1,200p' dist/VERSION.json | sed 's/^/    /'
+            echo
+            echo "### Sizes"
+            echo
+            printf '| file | bytes | gzipped |\n|---|---|---|\n'
+            printf '| cvc5.wasm | %s | %s |\n' "$raw" "$gz"
+            printf '| cvc5.js | %s | %s |\n' "$(wc -c < dist/cvc5.js)" "$(gzip -9 -c dist/cvc5.js | wc -c)"
+            echo
+            echo "### node ($(node --version))"
+            echo
+            echo '```'
+            grep -E "trivial query|swap corpus|heap|tests passed" node-test.log || true
+            echo '```'
+            echo
+            echo "### Browsers"
+            echo
+            echo '```'
+            grep -E "^==|crossOriginIsolated|trivial query|swap corpus|checks passed|check\(s\) failed" browser-test.log || true
+            echo '```'
+          } > notes.md
+          cat notes.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cvc5-wasm-${{ steps.tag.outputs.name }}
+          path: |
+            cvc5-wasm-*.tar.gz
+            cvc5-wasm-*.zip
+            notes.md
+
+      - name: Publish the release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.name }}
+        run: |
+          gh release create "$TAG" \
+            --title "cvc5-wasm $TAG" \
+            --notes-file notes.md \
+            "cvc5-wasm-$TAG.tar.gz" "cvc5-wasm-$TAG.zip"

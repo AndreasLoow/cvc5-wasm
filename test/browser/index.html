@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>cvc5-wasm browser test</title>
+    <style>
+      body { font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 2rem; max-width: 60rem; }
+      h1 { font-size: 1.2rem; }
+      .ok { color: #0a6b2a; }
+      .fail { color: #b00020; font-weight: bold; }
+      #summary { margin-top: 1rem; font-weight: bold; }
+      pre { white-space: pre-wrap; margin: 0.15rem 0; }
+    </style>
+  </head>
+  <body>
+    <h1>cvc5-wasm browser test</h1>
+    <p>
+      Loads <code>dist/cvc5.js</code> with <code>importScripts</code> inside a classic worker and runs tests 1-4 and 6
+      from <code>task.md</code>. Served without <code>Cross-Origin-Opener-Policy</code> or
+      <code>Cross-Origin-Embedder-Policy</code>; <code>crossOriginIsolated</code> is
+      <code id="isolated"></code>.
+    </p>
+    <div id="out"></div>
+    <div id="summary">running...</div>
+    <script>
+      document.getElementById("isolated").textContent = String(self.crossOriginIsolated);
+      const out = document.getElementById("out");
+      const summary = document.getElementById("summary");
+      function line(text, cls) {
+        const pre = document.createElement("pre");
+        if (cls) pre.className = cls;
+        pre.textContent = text;
+        out.appendChild(pre);
+      }
+      const worker = new Worker("/test/browser/worker.js" + location.search);
+      worker.onmessage = (e) => {
+        const m = e.data;
+        if (m.type === "log") line(m.text);
+        else if (m.type === "check") line(`${m.ok ? "ok   " : "FAIL "} ${m.name}${m.ok || !m.detail ? "" : ": " + m.detail}`, m.ok ? "ok" : "fail");
+        else if (m.type === "done") {
+          if (m.error) line(m.error, "fail");
+          summary.textContent = m.failures === 0 ? "all checks passed" : `${m.failures} check(s) failed`;
+          summary.className = m.failures === 0 ? "ok" : "fail";
+          window.__cvc5TestResult = m;
+        }
+      };
+      worker.onerror = (e) => {
+        line("worker error: " + e.message, "fail");
+        summary.textContent = "worker error";
+        window.__cvc5TestResult = { failures: 1, error: e.message };
+      };
+    </script>
+  </body>
+</html>
