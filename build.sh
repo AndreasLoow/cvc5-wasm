@@ -43,8 +43,9 @@ install_emsdk() {
     msg "cloning emsdk"
     git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$emsdk_dir"
   fi
-  if [ ! -e "$emsdk_dir/upstream/emscripten/em++" ] \
-     || ! grep -q "$EMSDK_VERSION" "$emsdk_dir/.emscripten" 2>/dev/null; then
+  # emscripten-version.txt records what is actually installed and activated.
+  if ! grep -q "\"$EMSDK_VERSION\"" \
+       "$emsdk_dir/upstream/emscripten/emscripten-version.txt" 2>/dev/null; then
     msg "installing emsdk $EMSDK_VERSION"
     (cd "$emsdk_dir" && ./emsdk install "$EMSDK_VERSION" && ./emsdk activate "$EMSDK_VERSION")
   fi
