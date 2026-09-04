@@ -61,10 +61,8 @@ async function main() {
   // 2. swap corpus -----------------------------------------------------------
   console.log(`\n2. swap corpus (${corpus.length} queries)`);
   let wrong = 0;
-  const firstPass = [];
   for (const q of corpus) {
     const out = M.solve(q.script);
-    firstPass.push(out);
     if (firstWord(out) !== q.verdict) {
       wrong++;
       if (wrong <= 5) console.log(`        ${q.name}: expected ${q.verdict}, got ${JSON.stringify(out.slice(0, 120))}`);
@@ -102,18 +100,21 @@ async function main() {
 
   // 5. leak ------------------------------------------------------------------
   const passes = Number(process.env.LEAK_PASSES || 20);
-  console.log(`\n5. leak (${passes} passes of the corpus)`);
-  const heapAfterFirstPass = heapSize(M);
+  console.log(`\n5. leak (${passes} passes of the corpus, ${passes * corpus.length} calls)`);
+  let heapAfterFirstPass = 0;
   let drift = null;
-  for (let pass = 1; pass < passes; pass++) {
+  const answers = [];
+  for (let pass = 0; pass < passes; pass++) {
     for (let i = 0; i < corpus.length; i++) {
       const out = M.solve(corpus[i].script);
-      if (drift === null && out !== firstPass[i]) {
-        drift = `pass ${pass}, ${corpus[i].name}: ${JSON.stringify(out.slice(0, 120))} != ${JSON.stringify(
-          firstPass[i].slice(0, 120)
+      if (pass === 0) answers.push(out);
+      else if (drift === null && out !== answers[i]) {
+        drift = `pass ${pass + 1}, ${corpus[i].name}: ${JSON.stringify(out.slice(0, 120))} != ${JSON.stringify(
+          answers[i].slice(0, 120)
         )}`;
       }
     }
+    if (pass === 0) heapAfterFirstPass = heapSize(M);
   }
   const heapAtEnd = heapSize(M);
   console.log(`        heap after pass 1: ${heapAfterFirstPass} bytes`);
