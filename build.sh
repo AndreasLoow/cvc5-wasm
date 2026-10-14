@@ -12,9 +12,11 @@
 set -euo pipefail
 
 # --- pinned versions -------------------------------------------------------
-CVC5_TAG=cvc5-1.3.4
-CVC5_COMMIT=f3b21c4483d3b88dc63cb7cd3e5eb092eee5e341
-EMSDK_VERSION=3.1.70
+CVC5_TAG=cvc5-1.4.2
+CVC5_COMMIT=282d5e0c84baf49c780704c532f87ba66d8b513d
+# cvc5 1.4's INSTALL.rst requires 6.0.8 or later and its CMake rejects older;
+# 6.0.8 is what cvc5's own CI pins.
+EMSDK_VERSION=6.0.8
 
 repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 build_root=${BUILD_ROOT:-$repo_dir/.build}
@@ -103,7 +105,11 @@ build_cvc5() {
   # platform has no shared libraries, which Ninja rejects and Make tolerates.
   if [ ! -f "$cvc5_build/Makefile" ]; then
     msg "configuring cvc5"
-    (cd "$cvc5_dir" && ./configure.sh production \
+    # "unrestricted" is 1.4's name for what 1.3 called "production", and is
+    # what cvc5's own wasm CI and its official binaries use.  ("stable" and
+    # "safe" disable features; the corpus verdicts in bench/swap/expected.tsv
+    # come from an unrestricted build.)
+    (cd "$cvc5_dir" && ./configure.sh unrestricted \
         --static --static-binary --auto-download --wasm=JS \
         "-DCMAKE_CXX_FLAGS=$exception_flag")
   fi
