@@ -233,7 +233,7 @@ drives it today, in the same browser on the same machine
 | file | raw | gzip -9 |
 |---|---|---|
 | `cvc5.wasm` (`-fwasm-exceptions`, shipped) | 21,847,100 | 4,548,236 |
-| `cvc5.wasm` (`-fexceptions`) | being re-measured for 1.4.2 | |
+| `cvc5.wasm` (`-fexceptions`) | 30,589,240 | 5,600,649 |
 | `cvc5.js` | 71,126 | ~19 kB |
 | (`cvc5-Wasm.zip` 1.4.2's `cvc5.wasm`, for comparison) | 29,168,897 | 5,308,100 |
 
@@ -242,7 +242,7 @@ wasm is 7 MB *smaller* than cvc5's own CLI build of the same version, which is
 a reversal: against 1.3.4's `cvc5-Wasm.zip` it was 3 MB larger.  cvc5's wasm
 CLI grew from 18.9 MB to 29.2 MB in 1.4; this build did not, because it links
 only `libcvc5.a` and `libcvc5parser.a` and drops everything that exists for the
-command line.  The `-fexceptions` build is larger again, and that is
+command line.  The `-fexceptions` build is 8.7 MB larger again, and that is
 entirely the exception model: JavaScript-based exceptions add landing pads and
 `invoke_*` thunks throughout.
 
@@ -256,10 +256,12 @@ worse on every axis:
 | build | `cvc5.wasm` | node trivial | node corpus | Chromium trivial | Chromium corpus | Firefox trivial | Firefox corpus |
 |---|---|---|---|---|---|---|---|
 | `-fwasm-exceptions` (shipped) | 21.8 MB | 1.4 ms | 0.47 s | 1.5 ms | 0.66 s | 1.5 ms | 0.6 s |
-| `-fexceptions` | being re-measured for 1.4.2 | | | | | | |
+| `-fexceptions` | 30.6 MB | 2.8 ms | 1.1 s | 3.3 ms | 1.4 s | 3.5 ms | 1.4 s |
 
 Both pass all six node tests and both browser test pages, and deeply nested
-input behaves the same either way (see above).  Wasm exception handling needs
+input behaves the same either way (see above) -- though with 1.4.2 the
+`-fexceptions` build sits right on the 3 ms node target, at 2.6 to 3.3 ms
+across runs, where the shipped one has a factor of two in hand.  Wasm exception handling needs
 support in the runtime -- Chrome 95+, Firefox 131+, Safari 15.2+, node 16+ --
 and every browser and node version this repository targets qualifies.  Those
 are the versions for the *legacy* encoding, which is what emsdk 6.0.8 still
