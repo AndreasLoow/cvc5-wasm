@@ -5,10 +5,12 @@ one persistent module, one synchronous `solve(script)` call, no per-query
 process startup.  Built by
 [AndreasLoow/cvc5-wasm](https://github.com/AndreasLoow/cvc5-wasm); see
 `VERSION.json` for the exact cvc5 commit, emsdk version, link flags, and the
-one patch applied to cvc5 (it makes cvc5 seed GMP's random state on first use
-instead of twice per query, which is 79% of the wall clock of a small query in
-WebAssembly; nothing else about cvc5 is changed, and the repository's README
-explains it in full).
+two patches applied to cvc5: one makes cvc5 seed GMP's random state on first
+use instead of twice per query, which is 79% of the wall clock of a small query
+in WebAssembly, and one makes its LibPoly and CaDiCaL sub-builds use the same
+C++ exception model as the rest of the build, without which this build does not
+link.  Nothing else about cvc5 is changed, and the repository's README explains
+both in full.
 
 ## Files
 
@@ -54,8 +56,8 @@ stays alive for the whole session, which is the point of this build: cvc5's own
 `cvc5-Wasm.zip` is the command-line binary, whose only entry point is `main`,
 so every query there pays cvc5's whole startup and teardown.  On a 4-core Linux machine a trivial query
 costs about 1.5 ms in Chromium and 1.4 ms under node, and one pass of the 87
-real queries this was built for takes about 0.5 s -- against about 46 ms and
-4.6 s for cvc5's own `cvc5-Wasm.zip` driven through `callMain` in the same
+real queries this was built for takes about 0.6 s -- against about 56 ms and
+6.9 s for cvc5's own `cvc5-Wasm.zip` driven through `callMain` in the same
 browser.
 
 ### Output contract

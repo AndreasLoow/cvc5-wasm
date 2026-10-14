@@ -1,6 +1,6 @@
 # cvc5-wasm
 
-[cvc5](https://cvc5.github.io/) 1.3.4 compiled to WebAssembly as a **library**:
+[cvc5](https://cvc5.github.io/) 1.4.2 compiled to WebAssembly as a **library**:
 one persistent module, one synchronous `solve(script)` call, no per-query
 process startup.
 
@@ -27,20 +27,20 @@ cvc5 attaches `cvc5-Wasm.zip` to every release, but that is the *command-line
 binary* compiled with emscripten, and its only entry point is `main`.  Every
 query means writing the script into the emscripten virtual filesystem, calling
 `callMain`, and letting cvc5 start up, parse, solve and shut down again --
-about **46 ms** per query in Chromium on the machine these numbers come from,
-whether the query is trivial or real, and **4.58 s** for one pass of those 87
+about **56 ms** per query in Chromium on the machine these numbers come from,
+whether the query is trivial or real, and **6.9 s** for one pass of those 87
 queries.  Driving `main` also needs three workarounds: the glue is not
 `MODULARIZE`d and rejects `wasmBinary`/`instantiateWasm`; `callMain` leaks the
 wasm stack and dies after roughly 137 calls; and `--early-exit` skips
 destructors and leaks megabytes of heap per call.
 
 This repository builds the same cvc5 -- same version, same tag, sources
-unpatched but for [one performance fix](#the-patch-to-cvc5) -- as a *library*
+unpatched but for [two build fixes](#the-patches-to-cvc5) -- as a *library*
 behind a small C++ wrapper with a real entry point.  The module is instantiated
 once per session and each query is a plain synchronous function call, so
 startup is paid once, all three workarounds go away, and a query costs
-**1.5 ms** instead of 46 ms, with the 87-query pass at **0.50 s** instead of
-4.58 s.  What it does not change is the interface: queries go in as SMT-LIB
+**1.5 ms** instead of 56 ms, with the 87-query pass at **0.66 s** instead of
+6.9 s.  What it does not change is the interface: queries go in as SMT-LIB
 text and answers come out as the text cvc5's binary would have printed, so a
 consumer that already builds scripts and reads verdicts does not have to change
 how it talks to the solver.
@@ -81,7 +81,7 @@ instantiation from a local server costs about 200 ms in Chromium and about
 ```js
 M.solve(script: string): string   // run one whole SMT-LIB 2.6 script
 M.reset(): void                   // throw away solver state
-M.version(): string               // "1.3.4"
+M.version(): string               // "1.4.2"
 M.heapSize(): number              // current wasm heap size in bytes
 ```
 
@@ -199,10 +199,10 @@ calls.
 ## Measurements
 
 All numbers below are from one machine: a 4-core x86-64 Linux container, node
-22.22.2, headless Chromium 151 and Firefox 153 driven by playwright, the page
-served over `http://localhost` with plain static headers.  Native cvc5 1.3.4
-(the official Linux static binary) does the corpus in 0.74 s and a trivial
-query in 5 ms per process on this machine, against the 0.7 s and ~8 ms measured
+22.22.2, headless Chromium 156 and Firefox 157 driven by playwright, the page
+served over `http://localhost` with plain static headers.  Native cvc5 1.4.2
+(the official Linux static binary) does the corpus in 0.91 s and a trivial
+query in 7 ms per process on this machine, against the 0.7 s and ~8 ms measured
 on the macOS machine the corpus was captured on, so the two are comparable.
 
 Trivial query is `(set-logic ALL)\n(check-sat)\n`, the mean of 100 calls after
@@ -210,19 +210,19 @@ Trivial query is `(set-logic ALL)\n(check-sat)\n`, the mean of 100 calls after
 
 | where | trivial query | swap corpus | target |
 |---|---|---|---|
-| native cvc5 1.3.4, one process per query | 5 ms | 0.74 s | -- |
-| **this build, node 22** | **1.36 ms** | **0.38 s** | trivial < 3 ms |
-| **this build, Chromium 151** | **1.52 ms** | **0.50 s** | trivial < 10 ms, corpus < 2 s |
-| this build, Firefox 153 | 5.72 ms | 2.04 s | -- |
-| `cvc5-Wasm.zip` 1.3.4 via `callMain`, Chromium 151 | 45.96 ms | 4.58 s | -- |
+| native cvc5 1.4.2, one process per query | 7 ms | 0.91 s | -- |
+| **this build, node 22** | **1.4 ms** | **0.47 s** | trivial < 3 ms |
+| **this build, Chromium 156** | **1.5 ms** | **0.66 s** | trivial < 10 ms, corpus < 2 s |
+| this build, Firefox 157 | 1.5 ms | 0.6 s | -- |
+| `cvc5-Wasm.zip` 1.4.2 via `callMain`, Chromium 156 | 55.7 ms | 6.9 s | -- |
 
-Every target is met, and in Chromium the corpus takes the same 0.5 s that z3
-(npm `z3-solver`) takes for it in the consumer.  A query now costs less than a
-native process does, because the module is already up: the remaining per-call
-cost is building and tearing down one solver.  Firefox runs the same code about
-4x slower than Chromium; it is inside the browser target for a single query,
-and 2 s for a whole corpus pass is the one number a Firefox user would notice.  Repeated runs of the same build vary by roughly 15%, so read
-these to two significant figures at most.
+Every target is met, with the corpus in Chromium within about 30% of the 0.5 s
+z3 (npm `z3-solver`) takes for it in the consumer.  A query costs a fifth of
+what a native process does, because the module is already up: the remaining
+per-call cost is building and tearing down one solver.  Firefox is no longer
+the outlier it was: Firefox 153 ran this code about 4x slower than Chromium,
+and 157 matches it.  Repeated runs of the same build vary by roughly 20%, so
+read these to two significant figures at most.
 
 The `cvc5-Wasm.zip` row is cvc5's own artefact measured the way the consumer
 drives it today, in the same browser on the same machine
@@ -232,19 +232,19 @@ drives it today, in the same browser on the same machine
 
 | file | raw | gzip -9 |
 |---|---|---|
-| `cvc5.wasm` (`-fwasm-exceptions`, shipped) | 21.9 MB | see the release notes |
-| `cvc5.wasm` (`-fexceptions`) | 30,842,613 | 5,733,836 |
-| `cvc5.js` | ~95 kB | ~22 kB |
-| (`cvc5-Wasm.zip`'s `cvc5.wasm`, for comparison) | 18,882,345 | 3,953,989 |
+| `cvc5.wasm` (`-fwasm-exceptions`, shipped) | 21,847,100 | 4,548,236 |
+| `cvc5.wasm` (`-fexceptions`) | being re-measured for 1.4.2 | |
+| `cvc5.js` | 71,126 | ~19 kB |
+| (`cvc5-Wasm.zip` 1.4.2's `cvc5.wasm`, for comparison) | 29,168,897 | 5,308,100 |
 
-Each release's notes carry the exact byte counts of what it ships.  The
-shipped wasm is about 3 MB larger than cvc5's CLI build: larger `-O2` output,
-and LibPoly.  The `-fexceptions` build is 9 MB larger again, and that is
-entirely working C++ exceptions: cvc5's own wasm build passes
-`-s NO_DISABLE_EXCEPTION_CATCHING=1` at link time only, so its objects are
-compiled with catch handlers dropped, whereas this build compiles cvc5 and the
-wrapper with exceptions on, which the output contract needs, and JavaScript-based
-exceptions add landing pads and `invoke_*` thunks throughout.
+Each release's notes carry the exact byte counts of what it ships.  The shipped
+wasm is 7 MB *smaller* than cvc5's own CLI build of the same version, which is
+a reversal: against 1.3.4's `cvc5-Wasm.zip` it was 3 MB larger.  cvc5's wasm
+CLI grew from 18.9 MB to 29.2 MB in 1.4; this build did not, because it links
+only `libcvc5.a` and `libcvc5parser.a` and drops everything that exists for the
+command line.  The `-fexceptions` build is larger again, and that is
+entirely the exception model: JavaScript-based exceptions add landing pads and
+`invoke_*` thunks throughout.
 
 ### Exceptions: `-fexceptions` versus `-fwasm-exceptions`
 
@@ -255,20 +255,27 @@ worse on every axis:
 
 | build | `cvc5.wasm` | node trivial | node corpus | Chromium trivial | Chromium corpus | Firefox trivial | Firefox corpus |
 |---|---|---|---|---|---|---|---|
-| `-fwasm-exceptions` (shipped) | 21.9 MB | 1.36 ms | 0.38 s | 1.52 ms | 0.50 s | 5.72 ms | 2.04 s |
-| `-fexceptions` | 30.8 MB | 2.37 ms | 0.86 s | 2.57 ms | 1.04 s | 8.79 ms | 3.18 s |
+| `-fwasm-exceptions` (shipped) | 21.8 MB | 1.4 ms | 0.47 s | 1.5 ms | 0.66 s | 1.5 ms | 0.6 s |
+| `-fexceptions` | being re-measured for 1.4.2 | | | | | | |
 
 Both pass all six node tests and both browser test pages, and deeply nested
 input behaves the same either way (see above).  Wasm exception handling needs
 support in the runtime -- Chrome 95+, Firefox 131+, Safari 15.2+, node 16+ --
-and every browser and node version this repository targets qualifies.  The
+and every browser and node version this repository targets qualifies.  Those
+are the versions for the *legacy* encoding, which is what emsdk 6.0.8 still
+emits by default (`WASM_LEGACY_EXCEPTIONS` is on); the standardised `exnref`
+encoding needs much newer runtimes, so an emsdk bump that flips that default
+is a browser-support change and wants re-checking here.  The
 `-fexceptions` build stays one environment variable away, with no change to the
 API, for a runtime that lacks it.
 
-### The patch to cvc5
+### The patches to cvc5
 
-`patches/0001-seed-gmp-random-state-lazily.patch` is the one patch this
-repository applies to cvc5, and it is why the targets are met.  Without it
+cvc5's sources are otherwise untouched, but `patches/` holds two of them.
+
+#### 0001: seed GMP's random state lazily
+
+This one is why the targets are met.  Without it
 (measured on the `-fexceptions` build) the trivial query costs 38 ms under node
 and 43 ms in Chromium, and the corpus 4.1 s and 4.4 s -- about 4x over target,
 with nothing to show for it.
@@ -292,18 +299,37 @@ random decisions, is still seeded eagerly on every `setSeed`, so a query's
 random decisions do not depend on what earlier queries drew.  It is worth
 sending upstream.
 
-`build.sh` applies the patch and commits it in the cvc5 checkout, because cvc5
-appends `-modified` to the version it reports for a dirty worktree, and the
-contract above says `M.version()` is `"1.3.4"`.  `VERSION.json` names the
-patch.
+As of 1.4.2 upstream has still not touched `src/util/random.cpp`, so the patch
+applies to it unchanged.
+
+#### 0002: build the dependencies with the parent's exception model
+
+Under Emscripten, cvc5 1.4 compiles LibPoly and CaDiCaL with a hard-coded
+`-fexceptions`, because emcc's default `-fignore-exceptions` would discard the
+landing pads their frames need when a cvc5 exception unwinds through them.
+That is right in itself, but it ignores what the rest of the build uses: with
+`-fwasm-exceptions` the build ends up with two incompatible exception models,
+and the link fails with a few hundred undefined `__resumeException` and
+`invoke_*` symbols out of `libpicpolyxx.a` and `libcadical.a`.  cvc5's own
+objects are fine -- clang takes the wasm model when given both flags -- so it
+is only these two sub-builds.  The patch makes them take the model the parent
+build uses; a default build, which passes neither flag, still gets
+`-fexceptions`.  `FindCoCoA.cmake` has the same hard-coding, left alone because
+this build does not pass `--cocoa`.
+
+Both are worth sending upstream.  `build.sh` applies them and commits them in
+the cvc5 checkout, because cvc5 appends `-modified` to the version it reports
+for a dirty worktree, and the contract above says `M.version()` is `"1.4.2"`.
+`VERSION.json` names them.
 
 ## Tests
 
 `npm test` runs six tests against `dist/` under node:
 
-1. **trivial** -- `(set-logic ALL)(check-sat)` is `sat`, and `version()` is `1.3.4`.
+1. **trivial** -- `(set-logic ALL)(check-sat)` is `sat`, and `version()` is `1.4.2`.
 2. **swap corpus** -- each of the 87 real queries in `bench/swap/` gives the
-   verdict native cvc5 1.3.4 gives (`bench/swap/expected.tsv`).
+   verdict native cvc5 gives (`bench/swap/expected.tsv`, captured from 1.3.4
+   and unchanged by 1.4.2).
 3. **isolation** -- a declaration, an option and a `set-logic` from one call
    cannot be seen by the next.
 4. **errors do not kill** -- 300 rounds of a rejected script followed by a good
@@ -336,19 +362,19 @@ npm test
 npm run test:browser
 ```
 
-`build.sh` is self-contained: it clones emsdk (pinned to **3.1.70**, the version
-cvc5 1.3.4's `INSTALL.rst` and CI require) into `.build/emsdk`, clones cvc5 at
-tag **cvc5-1.3.4** into `.build/cvc5`, applies `patches/`, configures it the way
-cvc5's own wasm CI does
+`build.sh` is self-contained: it clones emsdk (pinned to **6.0.8**, the version
+cvc5 1.4.2's `INSTALL.rst` and CI require -- its CMake rejects anything older)
+into `.build/emsdk`, clones cvc5 at tag **cvc5-1.4.2** into `.build/cvc5`,
+applies `patches/`, configures it the way cvc5's own wasm CI does
 
 ```sh
-./configure.sh production --static --static-binary --auto-download --wasm=JS \
+./configure.sh unrestricted --static --static-binary --auto-download --wasm=JS \
     -DCMAKE_CXX_FLAGS=-fwasm-exceptions
 ```
 
 builds only `libcvc5.a` and `libcvc5parser.a` (the command-line binary is not
 needed), links `src/cvc5_wasm.cpp` against them with `em++`, and writes `dist/`.
-Two things are worth knowing about that configure line:
+Three things are worth knowing about that configure line:
 
 * `-DCMAKE_CXX_FLAGS=-fwasm-exceptions` -- cvc5 reports errors by throwing,
   and emscripten drops `catch` handlers unless exceptions are compiled in.
@@ -356,6 +382,10 @@ Two things are worth knowing about that configure line:
   why the wasm flavour.
 * no `--ninja` -- LibPoly's CMake declares two rules for `libpoly.a` when the
   target has no shared libraries, which Ninja rejects and Make tolerates.
+* `unrestricted` -- 1.4's name for what 1.3 called `production`.  It is what
+  cvc5's own wasm CI and its official binaries use; `stable` and `safe` disable
+  features, and `bench/swap/expected.tsv` was captured from an unrestricted
+  build.
 
 The link line is in `link_wrapper` in `build.sh`; `VERSION.json` records it
 verbatim.  `-sSTACK_SIZE=8388608` is explained under *Very deeply nested
@@ -378,7 +408,7 @@ Releases come from CI, not a laptop: pushing a tag `v*` runs
 on `ubuntu-latest`, runs the node and browser tests, and attaches
 `cvc5-wasm-<tag>.tar.gz` and `cvc5-wasm-<tag>.zip` (the `dist/` files at top
 level) to the release.  Tags are `v<cvc5 version>-<build number>`:
-`v1.3.4-1`, `v1.3.4-2`, ...
+`v1.4.2-1`, `v1.4.2-2`, ...
 
 ### Bumping the cvc5 version
 
@@ -386,10 +416,11 @@ level) to the release.  Tags are `v<cvc5 version>-<build number>`:
    `CVC5_COMMIT` (`git ls-remote --tags https://github.com/cvc5/cvc5`) and, if
    the new cvc5's `INSTALL.rst` asks for a newer emscripten, `EMSDK_VERSION`.
 2. Update the hard-coded `"cvc5"` version string in `write_metadata` in
-   `build.sh`, the version in `package.json`, and the `version() is 1.3.4`
+   `build.sh`, the version in `package.json`, and the `version() is <version>`
    check in `test/run.cjs`.
-3. Re-check `patches/`: if cvc5 has fixed the GMP seeding upstream, drop the
-   patch (`git -C .build/cvc5 log --oneline src/util/random.cpp` and the
+3. Re-check `patches/`: if cvc5 has fixed the GMP seeding or the dependency
+   exception flags upstream, drop that patch (`git -C .build/cvc5 log --oneline
+   src/util/random.cpp cmake/FindPoly.cmake cmake/FindCaDiCaL.cmake` and the
    measurements above will tell you).  If a patch no longer applies, rebase it
    by hand and record why it is still needed.
 4. `rm -rf .build/cvc5 dist && ./build.sh && npm test && npm run test:browser`.
@@ -398,3 +429,11 @@ level) to the release.  Tags are `v<cvc5 version>-<build number>`:
 5. Regenerate `bench/swap/expected.tsv` with the new native cvc5 if its
    verdicts move, and say so in the release notes.
 6. Tag `v<new version>-1`.
+
+What the 1.3.4 to 1.4.2 bump actually needed, as a sample of the kind of thing
+to expect: the emsdk floor moved from 3.1.70 to 6.0.8; `production` became
+`unrestricted`; LibPoly and CaDiCaL had to be taught the build's exception
+model (patch 0002); MPFR appeared as a new auto-downloaded dependency.  What
+it did not need: any change to the wrapper, to the link flags, or to
+`expected.tsv` -- native 1.4.2 gives the same verdict as 1.3.4 on all 87
+queries.

@@ -87,20 +87,20 @@ jobs:
             echo '```'
             echo
             echo "The numbers above are this CI runner's.  Measured on the"
-            echo "development machine (4-core x86-64, node 22, headless Chromium 151),"
-            echo "with native cvc5 1.3.4 and cvc5's own cvc5-Wasm.zip for reference:"
+            echo "development machine (4-core x86-64, node 22, headless Chromium 156),"
+            echo "with native cvc5 1.4.2 and cvc5's own cvc5-Wasm.zip for reference:"
             echo
             printf '| where | trivial query | swap corpus (87 queries) |\n|---|---|---|\n'
-            printf '| native cvc5 1.3.4, one process per query | 5 ms | 0.74 s |\n'
-            printf '| this build, node 22 | 1.36 ms | 0.38 s |\n'
-            printf '| this build, Chromium 151 | 1.52 ms | 0.50 s |\n'
-            printf '| this build, Firefox 153 | 5.72 ms | 2.04 s |\n'
-            printf '| cvc5-Wasm.zip 1.3.4 via callMain, Chromium 151 | 45.96 ms | 4.58 s |\n'
+            printf '| native cvc5 1.4.2, one process per query | 7 ms | 0.91 s |\n'
+            printf '| this build, node 22 | 1.4 ms | 0.47 s |\n'
+            printf '| this build, Chromium 156 | 1.5 ms | 0.66 s |\n'
+            printf '| this build, Firefox 157 | 1.5 ms | 0.6 s |\n'
+            printf '| cvc5-Wasm.zip 1.4.2 via callMain, Chromium 156 | 55.7 ms | 6.9 s |\n'
             echo
             echo "Targets were a trivial query under 3 ms in node and under 10 ms in"
             echo "Chromium, and the corpus under 2 s in Chromium.  The README has the"
-            echo "full story, including the one patch applied to cvc5, the choice of"
-            echo "-fwasm-exceptions, and why the wasm is larger than cvc5's CLI build."
+            echo "full story, including the two patches applied to cvc5, the choice"
+            echo "of -fwasm-exceptions, and how the build compares with cvc5's own."
           } > notes.md
           cat notes.md
 
