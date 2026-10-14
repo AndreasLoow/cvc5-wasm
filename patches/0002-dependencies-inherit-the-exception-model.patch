@@ -1,0 +1,64 @@
+Build the dependencies with the parent's exception model
+
+Under Emscripten, cvc5 compiles LibPoly and CaDiCaL with a hard-coded
+-fexceptions, because emcc's default -fignore-exceptions would discard
+the landing pads their frames need when a cvc5 exception unwinds through
+them.  That is right in itself, but it ignores what the rest of the
+build uses: a build configured with -fwasm-exceptions ends up with two
+incompatible exception models, and the link fails with a few hundred
+undefined __resumeException and invoke_* symbols from libpicpolyxx.a and
+libcadical.a.  (cvc5's own objects are fine: clang takes the wasm model
+when both flags are given.)
+
+So pick the model the parent build is using instead of assuming the
+JavaScript one.  A default build, which passes neither flag, is
+unaffected -- it still gets -fexceptions.
+
+FindCoCoA.cmake hard-codes -fexceptions the same way; it is left alone
+because this build does not pass --cocoa and the change would be
+untested here.
+
+Applied by build.sh; see README.md.  Worth sending upstream.
+
+diff --git a/cmake/FindCaDiCaL.cmake b/cmake/FindCaDiCaL.cmake
+index 7349252..997d233 100644
+--- a/cmake/FindCaDiCaL.cmake
++++ b/cmake/FindCaDiCaL.cmake
+@@ -110,8 +110,15 @@ if(NOT CaDiCaL_FOUND_SYSTEM)
+   # runs as a CaDiCaL::ExternalPropagator callback, so exceptions it throws
+   # from inside the SAT search (e.g. FfTimeoutException) unwind back out
+   # through CaDiCaL frames; without this flag their destructors are skipped.
++  # Inherit the parent build's exception model: objects compiled with
++  # -fwasm-exceptions do not link against objects compiled with -fexceptions
++  # (the latter reference __resumeException and friends).
+   if(EMSCRIPTEN)
+-    string(APPEND CaDiCaL_CXXFLAGS " -fexceptions")
++    if(CMAKE_CXX_FLAGS MATCHES "-fwasm-exceptions")
++      string(APPEND CaDiCaL_CXXFLAGS " -fwasm-exceptions")
++    else()
++      string(APPEND CaDiCaL_CXXFLAGS " -fexceptions")
++    endif()
+   endif()
+ 
+   # On macOS, we have to set `-isysroot` to make sure that include headers are
+diff --git a/cmake/FindPoly.cmake b/cmake/FindPoly.cmake
+index df3dd77..b0fe734 100644
+--- a/cmake/FindPoly.cmake
++++ b/cmake/FindPoly.cmake
+@@ -189,8 +189,15 @@ if(NOT Poly_FOUND_SYSTEM)
+   # See FindCaDiCaL.cmake: emcc's default -fignore-exceptions emits no
+   # landing pads, so destructors in LibPoly frames an exception unwinds
+   # through would be skipped.
++  # Inherit the parent build's exception model: objects compiled with
++  # -fwasm-exceptions do not link against objects compiled with -fexceptions
++  # (the latter reference __resumeException and friends).
+   if(EMSCRIPTEN)
+-    string(APPEND _poly_cxx_flags " -fexceptions")
++    if(CMAKE_CXX_FLAGS MATCHES "-fwasm-exceptions")
++      string(APPEND _poly_cxx_flags " -fwasm-exceptions")
++    else()
++      string(APPEND _poly_cxx_flags " -fexceptions")
++    endif()
+   endif()
+   if(_poly_cxx_flags)
+     string(STRIP "${_poly_cxx_flags}" _poly_cxx_flags)

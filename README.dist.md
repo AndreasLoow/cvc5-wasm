@@ -1,6 +1,6 @@
 # cvc5-wasm
 
-[cvc5](https://cvc5.github.io/) 1.3.4 compiled to WebAssembly as a **library**:
+[cvc5](https://cvc5.github.io/) 1.4.2 compiled to WebAssembly as a **library**:
 one persistent module, one synchronous `solve(script)` call, no per-query
 process startup.  Built by
 [AndreasLoow/cvc5-wasm](https://github.com/AndreasLoow/cvc5-wasm); see
@@ -45,7 +45,7 @@ No cross-origin isolation is needed: the build uses no threads and no
 ```js
 M.solve(script: string): string   // run one whole SMT-LIB 2.6 script
 M.reset(): void                   // throw away solver state
-M.version(): string               // "1.3.4"
+M.version(): string               // "1.4.2"
 M.heapSize(): number              // current wasm heap size in bytes
 ```
 

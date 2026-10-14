@@ -170,7 +170,7 @@ write_metadata() {
   emcc_version=$(em++ --version | head -1)
   cat > "$dist_dir/VERSION.json" <<JSON
 {
-  "cvc5": "1.3.4",
+  "cvc5": "1.4.2",
   "cvc5_commit": "$CVC5_COMMIT",
   "emsdk": "$EMSDK_VERSION",
   "cvc5_wasm": "$(git -C "$repo_dir" describe --tags --always --dirty 2>/dev/null || echo unknown)",
